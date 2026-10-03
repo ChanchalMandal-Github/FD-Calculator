@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FD Calculator with Line Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .calculator-container {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            max-width: 900px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 30px;
+        }
+        @media (max-width: 768px) {
+            .calculator-container { grid-template-columns: 1fr; }
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .label-val {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            color: #333;
+        }
+        .display-value {
+            color: #007bff;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .output-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .result-metrics {
+            width: 100%;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .metric-box {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-box span {
+            display: block;
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .metric-box strong {
+            font-size: 1.1rem;
+            color: #222;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 260px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="calculator-container">
+    <div class="input-section">
+        <h2>FD Calculator</h2>
+        
+        <div class="form-group">
+            <div class="label-val">
+                <label for="principalSlider">Principal Amount</label>
+                <span class="display-value" id="principalValue">₹1,000</span>
+            </div>
+            <input type="range" id="principalSlider" min="0" max="63" value="27">
+        </div>
+
+        <div class="form-group">
+            <div class="label-val">
+                <label for="interestSlider">Interest Rate (p.a.)</label>
+                <span class="display-value" id="interestValue">7.1%</span>
+            </div>
+            <input type="range" id="interestSlider" min="1" max="15" step="0.1" value="7.1">
+        </div>
+
+        <div class="form-group">
+            <div class="label-val">
+                <label for="yearsSlider">Tenure (Years)</label>
+                <span class="display-value" id="yearsValue">5 Years</span>
+            </div>
+            <input type="range" id="yearsSlider" min="1" max="25" step="1" value="5">
+        </div>
+    </div>
+
+    <div class="output-section">
+        <div class="result-metrics">
+            <div class="metric-box">
+                <span>Invested Amount</span>
+                <strong id="resInvested">₹0</strong>
+            </div>
+            <div class="metric-box">
+                <span>Est. Returns</span>
+                <strong id="resReturns">₹0</strong>
+            </div>
+            <div class="metric-box" style="grid-column: span 2; background: #e7f3ff;">
+                <span>Total Maturity Value</span>
+                <strong id="resTotal" style="color: #007bff;">₹0</strong>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="fdLineChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. Dynamic progressive lookup array for Principal
+    const principalLookup = [];
+    function generateLookup() {
+        for(let i = 1000; i < 10000; i += 1000) principalLookup.push(i);
+        for(let i = 10000; i < 100000; i += 10000) principalLookup.push(i);
+        for(let i = 100000; i < 1000000; i += 100000) principalLookup.push(i);
+        for(let i = 1000000; i < 10000000; i += 1000000) principalLookup.push(i);
+        for(let i = 10000000; i <= 100000000; i += 10000000) principalLookup.push(i);
+    }
+    generateLookup();
+
+    document.getElementById('principalSlider').max = principalLookup.length - 1;
+
+    // DOM Elements
+    const pSlider = document.getElementById('principalSlider');
+    const iSlider = document.getElementById('interestSlider');
+    const ySlider = document.getElementById('yearsSlider');
+
+    const pValueDisp = document.getElementById('principalValue');
+    const iValueDisp = document.getElementById('interestValue');
+    const yValueDisp = document.getElementById('yearsValue');
+
+    const resInvested = document.getElementById('resInvested');
+    const resReturns = document.getElementById('resReturns');
+    const resTotal = document.getElementById('resTotal');
+
+    // 2. Initialize Chart.js Line Chart
+    const ctx = document.getElementById('fdLineChart').getContext('2d');
+    let fdLineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [], // Populated dynamically (Year 0, Year 1, etc.)
+            datasets: [
+                {
+                    label: 'Total Value',
+                    data: [],
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 3
+                },
+                {
+                    label: 'Invested Amount',
+                    data: [],
+                    borderColor: '#cbd5e1',
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        callback: function(value) {
+                            return '₹' + value.toLocaleString('en-IN');
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    function formatCurrency(num) {
+        return '₹' + num.toLocaleString('en-IN');
+    }
+
+    // 3. Core Calculation & Chart Mapping Logic
+    function calculateFD() {
+        const principal = principalLookup[pSlider.value];
+        const rate = parseFloat(iSlider.value);
+        const totalYears = parseInt(ySlider.value);
+
+        pValueDisp.innerText = formatCurrency(principal);
+        iValueDisp.innerText = rate + '%';
+        yValueDisp.innerText = totalYears + (totalYears === 1 ? ' Year' : ' Years');
+
+        const n = 4; // Quarterly compounding
+        const r = rate / 100;
+
+        let labels = ['Year 0'];
+        let totalValueData = [principal];
+        let investedData = [principal];
+
+        // Calculate growth year-by-year for the timeline chart
+        for (let y = 1; y <= totalYears; y++) {
+            labels.push('Yr ' + y);
+            const yearlyMaturity = principal * Math.pow((1 + r/n), (n * y));
+            totalValueData.push(Math.round(yearlyMaturity));
+            investedData.push(principal);
+        }
+
+        const finalTotal = totalValueData[totalValueData.length - 1];
+        const finalReturns = finalTotal - principal;
+
+        // Update Text Results
+        resInvested.innerText = formatCurrency(principal);
+        resReturns.innerText = formatCurrency(finalReturns);
+        resTotal.innerText = formatCurrency(finalTotal);
+
+        // Update Line Chart Data tracks
+        fdLineChart.data.labels = labels;
+        fdLineChart.data.datasets[0].data = totalValueData;
+        fdLineChart.data.datasets[1].data = investedData;
+        fdLineChart.update();
+    }
+
+    // Event Listeners
+    pSlider.addEventListener('input', calculateFD);
+    iSlider.addEventListener('input', calculateFD);
+    ySlider.addEventListener('input', calculateFD);
+
+    // Initial Execution
+    calculateFD();
+</script>
+
+</body>
+</html>
